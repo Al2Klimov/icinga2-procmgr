@@ -11,16 +11,9 @@ import (
 	"os"
 	"os/signal"
 	"path"
-	"sync"
 	"syscall"
 	"time"
 )
-
-// critical can be locked non-exclusively to delay shutdown.
-var critical sync.RWMutex
-
-// shuttingDown is closed on shutdown.
-var shuttingDown = make(chan struct{})
 
 func main() {
 	log.SetLevel(log.ErrorLevel)
@@ -71,7 +64,7 @@ func main() {
 			opts.DB = int(database)
 		}
 
-		_ = redis.NewClient(opts)
+		go (&manager{reedis: redis.NewClient(opts)}).readLoop()
 	}
 
 	log.WithFields(log.Fields{"signal": <-chSignal}).Info("terminating due to signal")
