@@ -64,7 +64,12 @@ func main() {
 			opts.DB = int(database)
 		}
 
-		go (&manager{reedis: redis.NewClient(opts)}).readLoop()
+		concurrency := cfg["concurrency"]
+		go (&manager{
+			processes:  concurrency["processes"].(uint64),
+			goroutines: concurrency["goroutines"].(uint64),
+			reedis:     redis.NewClient(opts),
+		}).readLoop()
 	}
 
 	log.WithFields(log.Fields{"signal": <-chSignal}).Info("terminating due to signal")
@@ -154,6 +159,22 @@ func loadConfig(path string) (map[string]map[string]interface{}, error) {
 				PreCondition: config.NoPreCondition,
 				Required:     config.Optional,
 				TypeParser:   config.TypeUInt64,
+				Validator:    config.NoValidator,
+			},
+		},
+		"concurrency": {
+			"processes": {
+				PreCondition: config.NoPreCondition,
+				Required:     config.Optional,
+				TypeParser:   config.TypeUInt64,
+				Default:      uint64(512),
+				Validator:    config.NoValidator,
+			},
+			"goroutines": {
+				PreCondition: config.NoPreCondition,
+				Required:     config.Optional,
+				TypeParser:   config.TypeUInt64,
+				Default:      uint64(1024),
 				Validator:    config.NoValidator,
 			},
 		},

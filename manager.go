@@ -7,6 +7,7 @@ import (
 	"github.com/go-redis/redis"
 	"github.com/google/uuid"
 	log "github.com/sirupsen/logrus"
+	"golang.org/x/sync/semaphore"
 	"os"
 	"os/exec"
 	"strconv"
@@ -17,15 +18,24 @@ import (
 )
 
 type manager struct {
-	id     uuid.UUID
-	reedis *redis.Client
-	ourEnv struct {
+	id         uuid.UUID
+	processes  uint64
+	goroutines uint64
+	reedis     *redis.Client
+	ourEnv     struct {
 		vars []string
 		once sync.Once
+	}
+	semaphore struct {
+		processes  *semaphore.Weighted
+		goroutines *semaphore.Weighted
 	}
 }
 
 func (m *manager) readLoop() {
+	m.semaphore.processes = semaphore.NewWeighted(int64(m.processes))
+	m.semaphore.goroutines = semaphore.NewWeighted(int64(m.goroutines))
+
 	{
 		var errNR error
 		m.id, errNR = uuid.NewRandom()
@@ -69,6 +79,7 @@ func (m *manager) readLoop() {
 
 		for _, stream := range streams {
 			for _, message := range stream.Messages {
+				m.semaphore.goroutines.Acquire(background, 1)
 				go m.handleRequest(message)
 			}
 		}
@@ -76,6 +87,8 @@ func (m *manager) readLoop() {
 }
 
 func (m *manager) handleRequest(message redis.XMessage) {
+	defer m.semaphore.goroutines.Release(1)
+
 	rawId, ok := message.Values["id"].(string)
 	if !ok {
 		log.WithFields(log.Fields{
@@ -140,6 +153,8 @@ func (m *manager) handleRequest(message redis.XMessage) {
 	cmd.Stderr = &sharedOut
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 
+	m.semaphore.processes.Acquire(background, 1)
+
 	critical.RLock()
 	defer critical.RUnlock()
 
@@ -178,6 +193,8 @@ func (m *manager) handleRequest(message redis.XMessage) {
 			}
 		}
 
+		m.semaphore.processes.Release(1)
+
 		log.WithFields(log.Fields{"request": rawId}).Debug("process finished")
 
 		if errWt == nil {
@@ -208,6 +225,7 @@ func (m *manager) handleRequest(message redis.XMessage) {
 			m.sendResponse(message, rawId, -1, 128, out.Bytes(), start, end)
 		}
 	} else {
+		m.semaphore.processes.Release(1)
 		m.sendFailure(message, rawId, errSt.Error())
 	}
 }

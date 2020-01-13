@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"io"
 	"os/exec"
 	"sync"
@@ -27,6 +28,8 @@ var critical sync.RWMutex
 
 // shuttingDown is closed on shutdown.
 var shuttingDown = make(chan struct{})
+
+var background = context.Background()
 
 // time2Float returns the same as t.Unix(), but as float64.
 func time2Float(t time.Time) float64 {
